@@ -1,0 +1,38 @@
+# Secrets — every .env in every sub-project. Sub-project .gitignore files
+# don't reliably cover this (backend/.gitignore and lead-gen-app/.gitignore
+# predate this file and only ignore /target and *.local respectively), so
+# it's restated here at the root as the actual guarantee.
+.env
+.env.*
+!.env.example
+
+# Dependencies / build output (each sub-project has its own too, but Node
+# tooling sometimes writes outside the expected root — belt and suspenders)
+node_modules/
+.next/
+out/
+dist/
+dist-ssr/
+build/
+/backend/target/
+
+# DB dumps — contains real lead data, never belongs in version control
+_backups/
+
+# Editor / OS
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

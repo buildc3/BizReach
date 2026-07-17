@@ -1,0 +1,21 @@
+{
+  "name": "wa-sidecar",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "bundle": "esbuild index.js --bundle --platform=node --target=node20 --format=cjs --outfile=dist/bundle.cjs --external:better-sqlite3 --banner:js=\"globalThis.crypto=require('crypto').webcrypto;\"",
+    "build": "npm run bundle && npx @yao-pkg/pkg dist/bundle.cjs --targets node20-win-x64 --compress GZip --output ../backend/binaries/wa-sidecar-x86_64-pc-windows-msvc.exe"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "express": "^4.18.2",
+    "qrcode": "^1.5.3",
+    "pino": "^9.0.0"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^5.15.0",
+    "esbuild": "^0.20.0"
+  }
+}

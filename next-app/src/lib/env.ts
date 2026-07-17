@@ -1,0 +1,11 @@
+import { z } from "zod";
+
+const envSchema = z.object({
+  DATABASE_URL: z.string().min(1),
+  GOOGLE_PLACES_API_KEY: z.string().default(""),
+  GROQ_API_KEY: z.string().default(""),
+  GROQ_MODEL: z.string().default("llama-3.3-70b-versatile"),
+  SIDECAR_URL: z.string().default("http://127.0.0.1:3099"),
+});
+
+export const env = envSchema.parse(process.env);

@@ -1,0 +1,125 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Search {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String
+  bizType   String   @map("biz_type")
+  area      String
+  status    String   @default("pending")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  groups Group[]
+  leads  Lead[]
+
+  @@map("searches")
+}
+
+model Group {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  searchId  String   @map("search_id") @db.Uuid
+  name      String
+  kind      String   @default("manual")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  search Search @relation(fields: [searchId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  leads  Lead[]
+
+  @@index([searchId], map: "idx_groups_search_id")
+  @@map("groups")
+}
+
+model Lead {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  searchId  String   @map("search_id") @db.Uuid
+  groupId   String?  @map("group_id") @db.Uuid
+  name      String
+  ownerName String?  @map("owner_name")
+  address   String?
+  phone     String?
+  email     String?
+  website   String?
+  mapsUrl   String?  @map("maps_url")
+  lat       Float?
+  lon       Float?
+  source    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  search   Search    @relation(fields: [searchId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  group    Group?    @relation(fields: [groupId], references: [id], onUpdate: NoAction)
+  messages Message[]
+
+  @@index([groupId], map: "idx_leads_group_id")
+  @@index([phone], map: "idx_leads_phone", where: raw("(phone IS NOT NULL)"))
+  @@index([searchId], map: "idx_leads_search_id")
+  @@map("leads")
+}
+
+model Product {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name        String
+  description String?
+  price       Float?
+  category    String   @default("other")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  templates Template[]
+
+  /// CHECK (category IN (...)) enforced at the DB but not by Prisma Client — re-validate with zod in route handlers.
+  @@map("products")
+}
+
+model Template {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  productId String?  @map("product_id") @db.Uuid
+  name      String
+  body      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  product  Product?  @relation(fields: [productId], references: [id], onUpdate: NoAction)
+  messages Message[]
+
+  @@index([productId], map: "idx_templates_product_id")
+  @@map("templates")
+}
+
+model Message {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  leadId      String    @map("lead_id") @db.Uuid
+  templateId  String?   @map("template_id") @db.Uuid
+  body        String
+  status      String    @default("queued")
+  sentAt      DateTime? @map("sent_at") @db.Timestamptz(6)
+  reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(6)
+  repliedAt   DateTime? @map("replied_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lead     Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  template Template? @relation(fields: [templateId], references: [id], onUpdate: NoAction)
+
+  @@index([leadId], map: "idx_messages_lead_id")
+  @@index([status], map: "idx_messages_status")
+  /// Status lifecycle CHECK (draft/reviewed/rejected/queued/sent/delivered/replied/failed) enforced at the DB but not by Prisma Client — re-validate with zod in route handlers.
+  @@map("messages")
+}
+
+model SenderProfile {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  yourName    String?  @map("your_name")
+  companyName String?  @map("company_name")
+  phone       String?
+  website     String?
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("sender_profile")
+}
