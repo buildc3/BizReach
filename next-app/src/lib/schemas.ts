@@ -75,6 +75,17 @@ export const generatePitchSchema = z.object({
   instructions: z.string().nullish(),
 });
 
+export const signupSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  name: z.string().trim().nullish(),
+});
+
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
 export const updateProfileSchema = z.object({
   yourName: z.string().nullish(),
   companyName: z.string().nullish(),

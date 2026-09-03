@@ -33,6 +33,9 @@ Run these before calling any change done. They're weighted to this app's actual 
 ## Security checklist (local-first threat model)
 
 - [ ] No secrets in code, logs, or commits — keys live in `next-app/.env` and are read only via `lib/env.ts`. Grep the diff for key-looking literals.
+- [ ] Every `/api/v1/*` route handler starts with `const userId = await requireUser(req)` — check new handlers, don't assume the proxy alone covers it (patterns §12).
+- [ ] Every new/changed `lib/repo/*.ts` function that reads or writes a specific row scopes it by `userId` (directly, or via a parent join for `Group`/`Message`) — a query missing this filter is a cross-tenant data leak, not a cosmetic bug. The only exception is the send-queue worker's `*Internal` fns (patterns §12) — flag any other unscoped repo fn.
+- [ ] A cross-tenant ID returns `404 NOT_FOUND`, never `403` or a raw Prisma error (use `updateMany`/`deleteMany` + count-check, not bare `update`/`delete`, for scoped mutations).
 - [ ] Every route handler validates its own input (IDs are valid UUIDs via `parseUuid`, enums whitelisted, bodies non-empty via `lib/schemas.ts`) — the client's `lib/form-schemas.ts` validation counts for nothing server-side.
 - [ ] Prisma calls only, no raw/string-concatenated SQL, except the deliberate raw scan in `send-queue.ts`'s `resumeOnBoot` (a `findMany`, not raw SQL — flag if this ever needs to become raw SQL).
 - [ ] Rendered template/AI output is treated as plain text in the UI (no `dangerouslySetInnerHTML` — currently zero uses; keep it that way).

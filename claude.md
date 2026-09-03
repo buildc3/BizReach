@@ -21,7 +21,8 @@ Other facts:
 
 - **AI provider is Groq** (OpenAI-compatible chat completions, default model `llama-3.3-70b-versatile`) — see `next-app/src/lib/services/pitch.ts`. Not Claude, not OpenAI.
 - Scraping uses **Google Places API** (`GOOGLE_PLACES_API_KEY`).
-- Secrets live in `next-app/.env` (`DATABASE_URL`, `GROQ_API_KEY`, `GOOGLE_PLACES_API_KEY`, `SIDECAR_URL`). Never hardcode, never commit.
+- Secrets live in `next-app/.env` (`DATABASE_URL`, `GROQ_API_KEY`, `GOOGLE_PLACES_API_KEY`, `SIDECAR_URL`, `JWT_SECRET`). Never hardcode, never commit.
+- **The app requires login.** Email/password auth (JWT httpOnly cookie, `next-app/src/lib/auth.ts`), every resource (`Search`/`Product`/`Template`/`Lead`/`SenderProfile`) scoped to the signed-in user, `Group`/`Message` scoped transitively via their parent. Every `/api/v1/*` route handler starts with `const userId = await requireUser(req)`, and every `lib/repo/*.ts` function takes `userId` and filters by it — see `.ai/patterns.md` §12 before adding a new endpoint or repo function.
 - Start everything with `./start.ps1` (sidecar `node index.js`, app `npm run dev`).
 - Do **not** introduce alternative libraries (Redux, MUI, Axios, styled-components, ESLint plugins, etc.) without explicit approval.
 - **This Next.js version has real breaking changes vs. older training data** (e.g. route/page `params` is a `Promise` that must be `await`ed, Prisma 7 requires a driver adapter). Before writing App Router or Prisma code, check `next-app/node_modules/next/dist/docs/` or the installed package docs rather than assuming an older API shape. `next-app/AGENTS.md` carries this same warning.

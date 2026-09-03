@@ -8,6 +8,7 @@ import * as pitchesRepo from "@/lib/repo/pitches";
 import * as pitchService from "@/lib/services/pitch";
 import { AppError, ok, withRoute } from "@/lib/errors";
 import { generateBatchSchema } from "@/lib/schemas";
+import { requireUser } from "@/lib/auth";
 
 /**
  * Generate a per-lead draft pitch for every messageable lead in a group.
@@ -15,30 +16,31 @@ import { generateBatchSchema } from "@/lib/schemas";
  * Existing un-reviewed drafts for the group are replaced.
  */
 export const POST = withRoute(async (req: NextRequest) => {
+  const userId = await requireUser(req);
   const input = generateBatchSchema.parse(await req.json());
 
-  const group = await groupsRepo.getGroup(input.groupId);
-  const search = await searchesRepo.getSearch(group.searchId);
+  const group = await groupsRepo.getGroup(input.groupId, userId);
+  const search = await searchesRepo.getSearch(group.searchId, userId);
 
-  const template = input.templateId ? await templatesRepo.getTemplate(input.templateId) : null;
+  const template = input.templateId ? await templatesRepo.getTemplate(input.templateId, userId) : null;
   if (input.mode === "template" && !template) {
     throw AppError.validation("templateId is required for template mode");
   }
-  const product = input.productId ? await productsRepo.getProduct(input.productId) : null;
-  const profile = await settingsRepo.getSenderProfile().catch(() => null);
+  const product = input.productId ? await productsRepo.getProduct(input.productId, userId) : null;
+  const profile = await settingsRepo.getSenderProfile(userId);
 
   const { groupId, mode, instructions } = input;
 
   void (async () => {
     try {
-      await pitchesRepo.deleteDraftPitchesForGroup(groupId);
+      await pitchesRepo.deleteDraftPitchesForGroup(groupId, userId);
     } catch (e) {
       console.warn(`clearing old drafts failed for group ${groupId}:`, e);
     }
 
     let leads;
     try {
-      leads = await groupsRepo.getLeadsInGroup(groupId);
+      leads = await groupsRepo.getLeadsInGroup(groupId, userId);
     } catch (e) {
       console.error(`loading leads for group ${groupId} failed:`, e);
       return;

@@ -37,22 +37,22 @@ function jitterMs(): number {
  * false if the job was skipped without contacting WhatsApp.
  */
 async function processOne(messageId: string): Promise<boolean> {
-  const msg = await messagesRepo.getMessage(messageId).catch(() => null);
+  const msg = await messagesRepo.getMessageInternal(messageId).catch(() => null);
   if (!msg || msg.status !== "queued") return false; // already handled or cancelled
 
-  const lead = await leadsRepo.getLead(msg.leadId).catch(() => null);
+  const lead = await leadsRepo.getLeadInternal(msg.leadId).catch(() => null);
   const phone = lead?.phone?.trim();
   if (!phone) {
-    await messagesRepo.updateMessageStatus(messageId, "failed");
+    await messagesRepo.updateMessageStatusInternal(messageId, "failed");
     return false;
   }
 
   try {
     await whatsapp.sendMessage(phone, msg.body);
-    await messagesRepo.updateMessageStatus(messageId, "sent");
+    await messagesRepo.updateMessageStatusInternal(messageId, "sent");
     return true;
   } catch (e) {
-    await messagesRepo.updateMessageStatus(messageId, "failed");
+    await messagesRepo.updateMessageStatusInternal(messageId, "failed");
     console.warn(`send queue: message ${messageId} failed:`, e);
     return true; // still attempted a send — pace the next one
   }

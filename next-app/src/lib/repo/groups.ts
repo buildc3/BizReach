@@ -2,37 +2,45 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 
-export async function getGroups(searchId: string) {
+export async function getGroups(searchId: string, userId: string) {
   return prisma.group.findMany({
-    where: { searchId },
+    where: { searchId, search: { userId } },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
 }
 
-export async function getGroup(id: string) {
-  const group = await prisma.group.findUnique({ where: { id } });
+export async function getGroup(id: string, userId: string) {
+  const group = await prisma.group.findFirst({ where: { id, search: { userId } } });
   if (!group) throw AppError.notFound(`Group ${id} not found`);
   return group;
 }
 
+/** Caller must have already verified `searchId` belongs to this user (e.g. via searchesRepo.getSearch). */
 export async function insertGroup(searchId: string, name: string, kind: string, sortOrder: number) {
   return prisma.group.create({ data: { searchId, name, kind, sortOrder } });
 }
 
-export async function renameGroup(id: string, name: string) {
-  return prisma.group.update({ where: { id }, data: { name } });
+export async function renameGroup(id: string, userId: string, name: string) {
+  const group = await getGroup(id, userId);
+  return prisma.group.update({ where: { id: group.id }, data: { name } });
 }
 
-export async function deleteGroup(id: string) {
+export async function deleteGroup(id: string, userId: string) {
+  const group = await getGroup(id, userId);
   // ON DELETE SET NULL on leads.group_id (DB-level FK) keeps the leads, just ungroups them.
-  await prisma.group.delete({ where: { id } });
+  await prisma.group.delete({ where: { id: group.id } });
 }
 
-export async function setLeadGroup(leadId: string, groupId: string | null) {
-  return prisma.lead.update({ where: { id: leadId }, data: { groupId } });
+/** Moves a lead into a group (or ungroups it when `groupId` is null). Verifies both the lead and the target group belong to `userId`. */
+export async function setLeadGroup(leadId: string, groupId: string | null, userId: string) {
+  if (groupId) await getGroup(groupId, userId); // throws notFound if the group isn't this user's
+  const res = await prisma.lead.updateMany({ where: { id: leadId, userId }, data: { groupId } });
+  if (res.count === 0) throw AppError.notFound(`Lead ${leadId} not found`);
+  return prisma.lead.findUniqueOrThrow({ where: { id: leadId } });
 }
 
-export async function getLeadsInGroup(groupId: string) {
+export async function getLeadsInGroup(groupId: string, userId: string) {
+  await getGroup(groupId, userId); // ownership check
   return prisma.lead.findMany({ where: { groupId }, orderBy: { createdAt: "asc" } });
 }
 
@@ -69,9 +77,9 @@ const BUCKETS: Bucket[] = [
  * Creates the standard buckets (only the non-empty ones) and assigns leads.
  * Leads the user has already placed in a group are left untouched.
  */
-export async function autoGroupByContact(searchId: string) {
+export async function autoGroupByContact(searchId: string, userId: string) {
   for (const [i, bucket] of BUCKETS.entries()) {
-    const where: Prisma.LeadWhereInput = { searchId, groupId: null, ...bucket.predicate };
+    const where: Prisma.LeadWhereInput = { searchId, userId, groupId: null, ...bucket.predicate };
     const hasAny = (await prisma.lead.count({ where })) > 0;
     if (!hasAny) continue;
 
@@ -83,5 +91,5 @@ export async function autoGroupByContact(searchId: string) {
     await prisma.lead.updateMany({ where, data: { groupId: group.id } });
   }
 
-  return getGroups(searchId);
+  return getGroups(searchId, userId);
 }

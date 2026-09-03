@@ -18,11 +18,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   const json = await res.json();
-  if (!res.ok) throw json; // throws ApiError shape
+  if (!res.ok) {
+    // An expired/missing session — bounce to /login rather than stranding
+    // the UI in a permanent error state (proxy.ts already gates pages, but
+    // an in-flight session can also expire between renders).
+    if (res.status === 401 && typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw json; // throws ApiError shape
+  }
   return (json as ApiResponse<T>).data;
 }
 
 export const api = {
+  auth: {
+    signup: (body: { email: string; password: string; name?: string | null }) =>
+      request<{ id: string; email: string; name: string | null }>("/api/auth/signup", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    login: (body: { email: string; password: string }) =>
+      request<{ id: string; email: string; name: string | null }>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    logout: () => request<string>("/api/auth/logout", { method: "POST" }),
+    me: () => request<{ id: string; email: string; name: string | null }>("/api/auth/me"),
+  },
+
   products: {
     list: () => request<Product[]>("/api/v1/products"),
     get: (id: string) => request<Product>(`/api/v1/products/${id}`),

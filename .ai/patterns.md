@@ -115,3 +115,17 @@ if (process.env.NODE_ENV !== "production") globalForX.x = x;
 ```
 
 Without this, every file edit during `next dev` would create a fresh instance while the old one leaks (extra DB connections, a duplicate send-queue worker). Exemplars: `lib/db.ts`, `lib/services/send-queue.ts`.
+
+## 12. Auth gate + per-user data scoping
+
+Every `/api/v1/*` route handler starts with `const userId = await requireUser(req)` (`lib/auth.ts` — reads the `lead_gen_session` httpOnly JWT cookie, throws `AppError.unauthorized()` on missing/invalid/expired). `src/proxy.ts` is a first-line gate (redirects page requests to `/login`, 401s `/api/*` requests) but is **not** the only check — Next 16's own docs warn proxy coverage can silently regress (matcher change, refactor), so every handler must verify again. `/api/auth/*` is exempt from both the gate and this rule (that's the login surface itself).
+
+Every `lib/repo/*.ts` function takes `userId` and scopes its query:
+
+- **Direct owner** (`Search`, `Product`, `Template`, `Lead`, `SenderProfile` — each has a `userId` column): filter `where: { id, userId }` on reads, `updateMany`/`deleteMany` + `count === 0 → AppError.notFound()` on writes (never a bare `update`/`delete`, which would throw a generic Prisma error instead of the app's 404 shape — and would 500 rather than 404 on a cross-tenant ID). Exemplar: `lib/repo/searches.ts`.
+- **Child via parent join** (`Group` → `search.userId`, `Message` → `lead.userId` — no own `userId` column, per the deliberate denormalization choice): filter through the relation, e.g. `prisma.group.findFirst({ where: { id, search: { userId } } })`. Exemplar: `lib/repo/groups.ts`'s `getGroup`.
+- A cross-tenant ID always reads as `404 NOT_FOUND`, never a `403` — same "don't confirm what exists" convention as login's generic invalid-credentials message.
+- **The send-queue worker is the one deliberate exception.** `lib/services/send-queue.ts`'s `processOne` has no request/session context — it only ever acts on a message ID that was already ownership-checked when a route handler enqueued it. It calls unscoped `*Internal` repo fns (`messages.getMessageInternal`, `messages.updateMessageStatusInternal`, `leads.getLeadInternal`) instead of the normal `userId`-scoped ones. Don't add new unscoped repo fns outside this one worker.
+- `SenderProfile` moved from a single pre-seeded singleton row to one row per user, lazily created: `getSenderProfile(userId)` is a Prisma `upsert` (create-empty-if-missing), not a `findUnique` that can 404 — the Settings page always expects a row back.
+
+New endpoint checklist addition (extends pattern §1): the repo fn takes `userId` as its scoping param, the route handler resolves it via `requireUser` before anything else.

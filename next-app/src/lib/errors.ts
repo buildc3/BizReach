@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 
-export type ErrorCode = "VALIDATION" | "NOT_FOUND" | "SCRAPER" | "WHATSAPP" | "DATABASE" | "INTERNAL";
+export type ErrorCode =
+  | "VALIDATION"
+  | "NOT_FOUND"
+  | "SCRAPER"
+  | "WHATSAPP"
+  | "DATABASE"
+  | "INTERNAL"
+  | "UNAUTHORIZED"
+  | "CONFLICT";
 
 export class AppError extends Error {
   constructor(
@@ -28,6 +36,12 @@ export class AppError extends Error {
   }
   static internal(message: string) {
     return new AppError("INTERNAL", message, 500);
+  }
+  static unauthorized(message = "Not authenticated") {
+    return new AppError("UNAUTHORIZED", message, 401);
+  }
+  static conflict(message: string) {
+    return new AppError("CONFLICT", message, 409);
   }
 }
 

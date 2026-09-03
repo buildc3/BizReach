@@ -152,9 +152,9 @@ Templates (currently mislabeled "Pitches" in the sidebar) is a supporting CRUD s
 - One sidebar label changes: "Pitches" → "Templates" (route path `/pitches` → `/templates`, or keep the path and only change the label — decide at Phase 5 alongside routing).
 - Everything else in §2's route/page inventory is confirmed live and ports as planned. No other features identified as droppable — `Dashboard` and the two dead endpoints were the only gap between "what's defined" and "what's actually used."
 
-## 8. Future: Multi-Tenant Architecture (proposed, not started)
+## 8. Multi-Tenant Architecture
 
-> Status: **PROPOSED — discussion only, no code written, not scheduled.** Captured here because it changes the data model and every repo function, so any work on the Next.js app in the meantime should keep this shape in mind (e.g. don't hand-roll a second way of scoping data).
+> Status: **DONE (2026-07-18), landed together with §9 auth rather than as a separate later phase.** A prior session had already applied the schema half of this (User model + `userId` columns, live-migrated) bundled with §9's auth foundations before this was fully planned as one piece of work — see the note at the end of this section. This session finished it: every `lib/repo/*.ts` function scoped by `userId`, all 28 `/api/v1/*` route handlers gated, `src/proxy.ts` added, login/signup UI wired up. Detail in `progress.md`.
 
 ### 8.1 Goal
 
@@ -211,28 +211,28 @@ Baileys holds **exactly one linked WhatsApp device per running process** — it'
 
 **Recommendation:** start with **B** if this is still a small-scale/internal multi-tenant need (a handful of agencies, each wanting their own number) — it's a docs+ops change, not a code change, and can graduate to **C** later without touching the Next.js side's `userId`-scoping work, since `lib/services/whatsapp.ts` already isolates the sidecar HTTP client behind one interface. Only build **C** upfront if there's a concrete near-term need for many tenants (double digits+) sharing one deployment.
 
-### 8.6 Phases (draft — sequence to confirm before starting)
+### 8.6 Phases — actual outcome (2026-07-18)
 
-1. **Auth** — Auth.js + Prisma adapter, login/logout UI, `middleware.ts` route protection. No data-model changes to existing tables yet; verify login works standalone.
-2. **Schema** — add `userId` to `Search`, `Product`, `SenderProfile` (+ `Lead`, `Template` if going with the denormalized recommendation in §8.2). Migration must backfill existing rows to some default/admin user — **this is the one step that touches real data**, back up the DB first (same as the original Rust→Next.js migration's Phase 1).
-3. **Repo + route scoping** — mechanical but total: every repo fn + every route handler, per §8.4. Do this resource-by-resource (mirrors the original Phase 2 pattern) so each can be verified in isolation.
-4. **Sidecar decision** — implement whichever of Option A/B/C from §8.5 was chosen; this is the phase whose scope is genuinely unknown until that decision is made.
-5. **Frontend** — scope UI to "your data only" is automatic once the API is scoped (the frontend never sees other tenants' data), but add account/login UI, a way to switch/view "connected as" for the WhatsApp number, and settings for managing the tenant's own profile.
+1. **Auth** — ✅ done as §9's hand-rolled JWT, not Auth.js (see §8.7 #1). `src/proxy.ts` (not `middleware.ts` — see the correction note below) + `requireUser` in every handler.
+2. **Schema** — ✅ done. `userId` added to `Search`, `Product`, `SenderProfile`, and (per the denormalized recommendation, §8.7 #2) `Lead`, `Template` too. Backfilled to a bootstrap `admin@lead-gen.local` row (migration `20260717161119_add_users_and_tenancy`) so no pre-existing row was orphaned.
+3. **Repo + route scoping** — ✅ done. Every `lib/repo/*.ts` function takes `userId`; all 27 `/api/v1/*` route handlers (+ 4 `/api/auth/*`) gated. See `.ai/patterns.md` §12 for the exact shape (direct-owner vs. parent-join scoping, the send-queue's unscoped `*Internal` exception).
+4. **Sidecar decision** — **deferred, not started.** Still single shared sidecar process (implicitly "Option A" for now, by default rather than by an explicit choice) — every authenticated user's WhatsApp sends go through the one linked device. Fine for the current single-household/small-team usage; revisit via Option B (§8.5) before onboarding a second agency that needs its own number.
+5. **Frontend** — ✅ done. `/login`, `/signup` pages (route group `(auth)`, no Sidebar), Sidebar shows current user + logout (route group `(app)`), 401 responses redirect to `/login` from `lib/api.ts`.
 
-### 8.7 Open decisions before this can become a real plan
+### 8.7 Decisions (resolved 2026-07-18)
 
-| # | Decision | Recommendation |
+| # | Decision | Outcome |
 |---|---|---|
-| 1 | Auth provider | ~~Auth.js v5 + Prisma adapter~~ **Superseded by §9 (decided 2026-07-17): hand-rolled minimal JWT** — user chose simplicity and full visibility over the framework option |
-| 2 | `userId` on `Lead`/`Template` directly, or scope via parent join only? | Denormalize (add `userId` directly) — flatter, harder-to-miss `WHERE` filters in review |
-| 3 | WhatsApp multi-tenancy: A (shared number) / B (sidecar per tenant) / C (multi-session sidecar) | **B** for now, unless there's a concrete need for many tenants soon |
-| 4 | Does "tenant" mean one person, or an agency with a team (multiple logins sharing one workspace)? | Not yet answered — changes §8.2 from `User owns everything` to `Organization owns everything, User belongs to Organization`. **Ask before starting §8.6 phase 1**, since it changes the auth/schema shape, not just an later add-on. |
+| 1 | Auth provider | Hand-rolled minimal JWT (jose + bcryptjs), per §9 — not Auth.js. |
+| 2 | `userId` on `Lead`/`Template` directly, or scope via parent join only? | Denormalized — both have their own `userId` column. `Group`/`Message` were *not* denormalized (no direct `userId`); they scope via `search.userId`/`lead.userId` joins. |
+| 3 | WhatsApp multi-tenancy: A (shared number) / B (sidecar per tenant) / C (multi-session sidecar) | **Deferred** — still one shared sidecar. Not yet a real B/C choice, just not-yet-built. |
+| 4 | Does "tenant" mean one person, or an agency with a team? | **One person** — every top-level entity (`Search`, `Product`, `Template`, `Lead`, `SenderProfile`) has exactly one owning `User`, no `Organization`/team concept exists. Revisit if multi-seat-per-agency becomes a real ask. |
 
-> **Correction to §8.4/§8.6 (discovered while planning §9):** this project's Next.js version (16) has **deprecated and renamed `middleware.ts` to `proxy.ts`** — same API, new filename and exported function name (`export function proxy(...)`), lives at `src/proxy.ts`. All references to `middleware.ts` above should be read as `proxy.ts`. The Next 16 docs also explicitly warn **not** to rely on the proxy layer alone for auth — every route handler must verify the session itself (defense in depth; a matcher change or refactor can silently remove proxy coverage).
+> **Correction to §8.4/§8.6 (discovered while planning §9):** this project's Next.js version (16) has **deprecated and renamed `middleware.ts` to `proxy.ts`** — same API, new filename and exported function name (`export function proxy(...)`), lives at `src/proxy.ts`. This is what was actually built. The Next 16 docs also explicitly warn **not** to rely on the proxy layer alone for auth — every route handler must verify the session itself (defense in depth; a matcher change or refactor can silently remove proxy coverage) — `requireUser` is called in every handler for exactly this reason.
 
-## 9. Authentication Plan — Simple JWT (proposed, not started)
+## 9. Authentication Plan — Simple JWT
 
-> Status: **PROPOSED — plan only, no code written.** Decisions below were made with the user on 2026-07-17: **signup + login for multiple users** (not a single seeded admin), and a **hand-rolled minimal JWT** (not Auth.js/NextAuth). This is §8.6 Phase 1, specified concretely. Note the scope caveat in §9.7 — auth alone does NOT give data isolation.
+> Status: **DONE (2026-07-18), landed together with §8's data isolation** rather than as a separate earlier phase — see the note at the top of §8. Decisions below were made with the user on 2026-07-17: **signup + login for multiple users** (not a single seeded admin), and a **hand-rolled minimal JWT** (not Auth.js/NextAuth).
 
 ### 9.1 What's being built
 
@@ -261,7 +261,7 @@ model User {
 }
 ```
 
-Applied via `npx prisma migrate dev --name add_users` (the first real Prisma-generated migration on top of the `0_init` baseline). **No `userId` columns are added to existing tables in this phase** — that's §8's data-isolation work, deliberately separate (see §9.7).
+**As actually built:** a prior session bundled this `User` model into the same hand-authored migration as §8's `userId` columns (`20260717161119_add_users_and_tenancy`, applied via `prisma migrate deploy` — not `prisma migrate dev --name add_users` as originally planned here, since the shadow DB Prisma needs for diffing lacks the `uuid-ossp` extension the pre-existing schema depends on; see the migration file's own header comment). So §9.7's "auth lands first, data isolation later" sequencing did not hold in practice — both landed in the same pass. The rest of §9 below describes what was built, adjusted for that.
 
 ### 9.4 Files to create / touch
 
@@ -276,7 +276,7 @@ Applied via `npx prisma migrate dev --name add_users` (the first real Prisma-gen
 | `app/api/auth/me/route.ts` | new | GET: `requireUser` → return the current user (id, email, name) — lets the client hydrate "who am I" on load |
 | `app/login/page.tsx`, `app/signup/page.tsx` | new | RHF + zod forms in the existing UI style; on success redirect to `/`. These two routes render **without** the Sidebar (route-group or conditional layout — decide at implementation). |
 | `src/proxy.ts` | new | Next 16 proxy (the renamed middleware): if no valid auth cookie → redirect page requests to `/login`, return 401 JSON envelope for `/api/*` requests. Matcher exempts `/login`, `/signup`, `/api/auth/*`, `_next/*`, favicon. First-line defense only — see §9.5. |
-| All 28 `app/api/v1/**/route.ts` | touch | Add `await requireUser(req)` at the top of every handler. Mechanical one-liner per §8.4's rule and Next 16's own guidance (proxy coverage can silently regress; handlers must self-verify). The returned `userId` is **unused** in this phase — it's wired but not yet filtering data (§9.7). |
+| All 27 `app/api/v1/**/route.ts` | touch | Add `await requireUser(req)` at the top of every handler. Mechanical one-liner per §8.4's rule and Next 16's own guidance (proxy coverage can silently regress; handlers must self-verify). The returned `userId` **is used** — threaded into every repo call, since §8's scoping landed in the same pass (see the correction at §9.3). |
 | `src/hooks/useAuth.ts`, `lib/api.ts` | new/touch | `useMe`, `useLogin`, `useSignup`, `useLogout` hooks + `api.auth.*` methods, following the existing hook/api conventions. Sidebar gains a logout button + current-user display. |
 | `lib/errors.ts` | touch | Add `UNAUTHORIZED` (401) to the `ErrorCode` union + an `AppError.unauthorized()` factory. Frontend `request<T>` already throws the envelope; add a global QueryClient `onError` (or a check in `request<T>`) that redirects to `/login` on a 401 so an expired token doesn't strand the UI in error states. |
 
@@ -294,17 +294,19 @@ Browser ──► src/proxy.ts (Next 16's renamed middleware)
             existing repo/service logic (unchanged in this phase)
 ```
 
-### 9.6 Order of implementation (when approved)
+### 9.6 Order of implementation — as actually executed (2026-07-18)
 
-1. Deps + `JWT_SECRET` + `lib/auth.ts` + `lib/errors.ts` (`UNAUTHORIZED`) — foundations, nothing protected yet.
-2. `User` model + migration + `repo/users.ts` + the four `/api/auth/*` routes — verify signup/login/me/logout with plain HTTP calls before any UI exists.
-3. `src/proxy.ts` + `requireUser` in all 28 handlers — the app is now actually gated.
-4. Login/signup pages + hooks + Sidebar logout + 401→redirect handling — the UX layer.
-5. Update `.ai/architecture.md`, `.ai/patterns.md` (new pattern: auth check), `.ai/review-rules.md` (add "every new route handler starts with `requireUser`" to the checklist), `CLAUDE.md` env-var list.
+1. Deps + `JWT_SECRET` + `lib/auth.ts` + `lib/errors.ts` (`UNAUTHORIZED`, `CONFLICT`) — foundations. *(Landed in an earlier session, along with the schema — see §9.3's correction note.)*
+2. `User` model + migration + `repo/users.ts` + the four `/api/auth/*` routes. Verified with plain HTTP calls (curl) — signup, login, me, logout, duplicate-email conflict, wrong-password generic-401 all behave as designed.
+3. Every `lib/repo/*.ts` function scoped by `userId` (this session — see `.ai/patterns.md` §12 for the exact shape), `src/proxy.ts` added, `requireUser` wired into all 27 `/api/v1/*` handlers — the app is now gated **and** tenant-isolated in the same pass (not two phases, contrary to the original §9.7 sequencing plan below).
+4. Login/signup pages (`(auth)` route group, no Sidebar) + `useAuth` hooks + Sidebar logout/current-user + 401→redirect in `lib/api.ts`'s `request<T>`.
+5. `.ai/architecture.md`, `.ai/patterns.md` (§12), `.ai/review-rules.md`, `.ai/glossary.md` updated; this file and `progress.md`.
 
-### 9.7 Explicit scope caveat — auth ≠ data isolation
+Verified via HTTP smoke test (not yet the user's own browser click-through): unauthenticated requests 401/redirect correctly; two independent signups each see only their own data; a cross-tenant ID lookup returns 404 (not 403 or a raw error); a fresh signup's `GET /settings/profile` lazily creates an empty row instead of erroring.
 
-After this plan lands, the app has **login walls but shared data**: every authenticated user still sees the same Searches/Leads/Products/Templates/Messages and the same single `SenderProfile` row, because no `userId` exists on those tables yet. That's §8 Phases 2–3 (schema `userId` columns + scoping all repo fns), deliberately not bundled in here — bundling them would make "simple authentication" into the full multi-tenant migration. Since **signup is open**, anyone who can reach the app and register sees everything — fine while it binds to `localhost`, but this configuration (open signup + shared data) must **not** be exposed beyond localhost. If exposure is the goal, do §8 Phases 2–3 first or disable signup.
+### 9.7 Superseded — auth and data isolation landed together
+
+This section originally caveated that auth alone wouldn't give data isolation, and that §8's schema/scoping work was deliberately deferred. That did not hold: a prior session had already applied §8's schema change bundled with §9's `User` model in one migration, so finishing "just §9" was no longer available as an option by the time this was picked back up — see the decision at the top of §8. The app now has both login walls **and** per-user data isolation as of 2026-07-18.
 
 ## 10. Known Gaps / Hardening Backlog (assessment, not started)
 

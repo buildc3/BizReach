@@ -59,7 +59,7 @@ export function hasPhone(lead: Lead): boolean {
   return !!lead.phone?.trim();
 }
 
-/** Insert a pitch as a draft message awaiting review. */
+/** Insert a pitch as a draft message awaiting review. Caller must have already verified `leadId` belongs to the requesting user. */
 export async function insertDraft(leadId: string, templateId: string | null, body: string) {
   return prisma.message.create({ data: { leadId, templateId, body, status: "draft" } });
 }
@@ -68,8 +68,10 @@ export async function insertDraft(leadId: string, templateId: string | null, bod
  * Remove only the not-yet-reviewed drafts for a group's leads (regeneration).
  * Reviewed/sent pitches are left untouched.
  */
-export async function deleteDraftPitchesForGroup(groupId: string) {
-  const res = await prisma.message.deleteMany({ where: { status: "draft", lead: { groupId } } });
+export async function deleteDraftPitchesForGroup(groupId: string, userId: string) {
+  const res = await prisma.message.deleteMany({
+    where: { status: "draft", lead: { groupId, userId } },
+  });
   return res.count;
 }
 
@@ -89,9 +91,9 @@ export interface PitchWithLead {
 }
 
 /** All pitches for a group's leads, with lead display info, for the review screen. */
-export async function getGroupPitches(groupId: string): Promise<PitchWithLead[]> {
+export async function getGroupPitches(groupId: string, userId: string): Promise<PitchWithLead[]> {
   const messages = await prisma.message.findMany({
-    where: { lead: { groupId } },
+    where: { lead: { groupId, userId } },
     include: { lead: { select: { name: true, phone: true } } },
     orderBy: { createdAt: "asc" },
   });
@@ -113,14 +115,18 @@ export async function getGroupPitches(groupId: string): Promise<PitchWithLead[]>
 }
 
 /** Move a pitch through its review lifecycle (draft → reviewed | rejected | ...). */
-export async function setPitchStatus(id: string, status: string) {
-  const data = status === "reviewed" ? { status, reviewedAt: new Date() } : { status };
-  return prisma.message.update({ where: { id }, data });
+export async function setPitchStatus(id: string, userId: string, status: string) {
+  const res = await prisma.message.updateMany({
+    where: { id, lead: { userId } },
+    data: status === "reviewed" ? { status, reviewedAt: new Date() } : { status },
+  });
+  if (res.count === 0) throw AppError.notFound(`Pitch ${id} not found`);
+  return prisma.message.findUniqueOrThrow({ where: { id } });
 }
 
 /** Edit a draft/reviewed pitch's body (only while still editable). */
-export async function updatePitchBody(id: string, body: string) {
-  const existing = await prisma.message.findUnique({ where: { id } });
+export async function updatePitchBody(id: string, userId: string, body: string) {
+  const existing = await prisma.message.findFirst({ where: { id, lead: { userId } } });
   if (!existing || !["draft", "reviewed"].includes(existing.status)) {
     throw AppError.notFound(`Editable pitch ${id} not found`);
   }

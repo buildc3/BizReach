@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, FileText, Mail, Package, Search, Settings } from "lucide-react";
+import { BarChart3, FileText, LogOut, Mail, Package, Search, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/useUIStore";
 import { useFollowups } from "@/hooks/useMessages";
+import { useMe, useLogout } from "@/hooks/useAuth";
 
 const NAV = [
   { to: "/", icon: Search, label: "Searches" },
@@ -19,6 +20,8 @@ const NAV = [
 export function Sidebar() {
   const { sidebarCollapsed } = useUIStore();
   const { data: followups } = useFollowups();
+  const { data: me } = useMe();
+  const logout = useLogout();
   const currentPath = usePathname();
 
   return (
@@ -67,6 +70,25 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Current user + logout */}
+      <div className={cn("border-t border-border p-2", sidebarCollapsed && "flex justify-center")}>
+        {!sidebarCollapsed && me && (
+          <p className="px-1 pb-1 text-xs text-muted-foreground truncate">{me.email}</p>
+        )}
+        <button
+          onClick={() => logout.mutate()}
+          disabled={logout.isPending}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium w-full transition-colors",
+            "text-muted-foreground hover:bg-muted hover:text-foreground",
+            sidebarCollapsed && "justify-center px-0"
+          )}
+        >
+          <LogOut className="h-4 w-4 flex-shrink-0" />
+          {!sidebarCollapsed && <span>Log out</span>}
+        </button>
+      </div>
     </aside>
   );
 }

@@ -12,6 +12,7 @@ export type ProductCategory = "website" | "menu" | "other";
 
 export interface Product {
   id: string;
+  userId: string;
   name: string;
   description: string | null;
   price: number | null;
@@ -22,6 +23,7 @@ export interface Product {
 
 export interface Search {
   id: string;
+  userId: string;
   name: string;
   bizType: string;
   area: string;
@@ -42,6 +44,7 @@ export interface Group {
 
 export interface Lead {
   id: string;
+  userId: string;
   searchId: string;
   groupId: string | null;
   name: string;
@@ -59,6 +62,7 @@ export interface Lead {
 
 export interface Template {
   id: string;
+  userId: string;
   name: string;
   body: string;
   productId: string | null;
@@ -88,6 +92,7 @@ export type PitchMode = "template" | "ai";
 
 export interface SenderProfile {
   id: string;
+  userId: string;
   yourName: string | null;
   companyName: string | null;
   phone: string | null;
@@ -107,6 +112,6 @@ export interface WhatsAppStatus {
 
 export interface ApiError {
   success: false;
-  code: "VALIDATION" | "NOT_FOUND" | "SCRAPER" | "WHATSAPP" | "DATABASE" | "INTERNAL";
+  code: "VALIDATION" | "NOT_FOUND" | "SCRAPER" | "WHATSAPP" | "DATABASE" | "INTERNAL" | "UNAUTHORIZED" | "CONFLICT";
   message: string;
 }

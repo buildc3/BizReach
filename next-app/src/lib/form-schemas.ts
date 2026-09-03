@@ -21,3 +21,16 @@ export const templateSchema = z.object({
   productId: z.string().min(1, "Select a product"),
 });
 export type TemplateInput = z.infer<typeof templateSchema>;
+
+export const signupFormSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  name: z.string().optional(),
+});
+export type SignupFormInput = z.infer<typeof signupFormSchema>;
+
+export const loginFormSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+export type LoginFormInput = z.infer<typeof loginFormSchema>;

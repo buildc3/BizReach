@@ -8,6 +8,27 @@ $root = $PSScriptRoot
 
 Write-Host "Starting Lead-Gen App..." -ForegroundColor Cyan
 
+# 0. Dated DB backup (strategy.md §10.2 #7 — the leads DB is the business
+# asset; snapshot it on every start, keep the last 14). Best-effort: a
+# failed backup (Docker not up yet, pg_dump missing) must not block startup.
+$backupDir = Join-Path $root "_backups"
+if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+$stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$backupFile = Join-Path $backupDir "lead_gen_$stamp.dump"
+try {
+    docker exec postgres-client pg_dump -U yashdba -Fc lead_gen > $backupFile 2>$null
+    if ($? -and (Test-Path $backupFile) -and (Get-Item $backupFile).Length -gt 0) {
+        Write-Host "DB backup saved -> $backupFile" -ForegroundColor Gray
+        Get-ChildItem $backupDir -Filter "lead_gen_*.dump" | Sort-Object LastWriteTime -Descending |
+            Select-Object -Skip 14 | Remove-Item -Force
+    } else {
+        Remove-Item $backupFile -ErrorAction SilentlyContinue
+        Write-Host "DB backup skipped (is the postgres-client container running?)" -ForegroundColor DarkYellow
+    }
+} catch {
+    Write-Host "DB backup skipped: $_" -ForegroundColor DarkYellow
+}
+
 # 1. WhatsApp sidecar (Baileys on port 3099)
 Start-Process powershell -ArgumentList @(
     "-NoExit",

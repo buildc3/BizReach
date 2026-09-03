@@ -29,34 +29,44 @@ next-app/
 │   └── migrations/             # Prisma Migrate history (0_init = baseline against the pre-existing DB)
 └── src/
     ├── instrumentation.ts      # register() — starts the send-queue boot re-scan once per server start
+    ├── proxy.ts                # Next 16's renamed middleware — first-line auth gate (redirect/401), see .ai/patterns.md §12
     ├── app/
-    │   ├── layout.tsx          # root layout: fonts (next/font), Providers, Sidebar shell
+    │   ├── layout.tsx          # root layout: fonts (next/font), Providers only — no Sidebar here
     │   ├── providers.tsx       # "use client" — QueryClientProvider
     │   ├── globals.css         # Tailwind v4 @theme — ALL design tokens (see .ai/design.md)
-    │   ├── page.tsx             # "/" = Searches (the flow's entry point)
-    │   ├── leads/page.tsx
-    │   ├── templates/page.tsx  # template CRUD (was "Pitches" pre-migration — renamed, see .ai/project.md)
-    │   ├── messages/page.tsx
-    │   ├── products/page.tsx
-    │   ├── settings/page.tsx
-    │   └── api/v1/              # ALL route handlers, one folder per resource/action, mirrors the old axum routes 1:1
-    │       ├── searches/, leads/, groups/, templates/, products/, pitches/, messages/, settings/, whatsapp/
-    │       └── each: route.ts (list/create) and/or [id]/route.ts, [id]/<action>/route.ts
+    │   ├── (app)/               # route group: authenticated pages, wrapped in the Sidebar shell
+    │   │   ├── layout.tsx       # Sidebar + main wrapper (moved out of root layout for the (auth) split below)
+    │   │   ├── page.tsx          # "/" = Searches (the flow's entry point)
+    │   │   ├── leads/page.tsx
+    │   │   ├── templates/page.tsx  # template CRUD (was "Pitches" pre-migration — renamed, see .ai/project.md)
+    │   │   ├── messages/page.tsx
+    │   │   ├── products/page.tsx
+    │   │   └── settings/page.tsx
+    │   ├── (auth)/               # route group: login/signup, no Sidebar
+    │   │   ├── layout.tsx        # centered, minimal — no Sidebar
+    │   │   ├── login/page.tsx
+    │   │   └── signup/page.tsx
+    │   └── api/
+    │       ├── auth/             # signup/login/logout/me — NOT under /v1, proxy matcher exempts this prefix
+    │       └── v1/                # ALL other route handlers, one folder per resource/action, mirrors the old axum routes 1:1
+    │           ├── searches/, leads/, groups/, templates/, products/, pitches/, messages/, settings/, whatsapp/
+    │           └── each: route.ts (list/create) and/or [id]/route.ts, [id]/<action>/route.ts — every handler starts with `await requireUser(req)`
     ├── components/
-    │   ├── layout/              # Sidebar, TopBar, Spinner, ErrorState
+    │   ├── layout/              # Sidebar (incl. logout + current-user), TopBar, Spinner, ErrorState
     │   ├── pitches/              # GroupPitchDrawer (the real pitch review/send UI)
     │   └── ui/                   # shadcn/ui copy-in — button, card, dialog, input, label, textarea ("use client")
-    ├── hooks/                   # one file per resource: useLeads, useGroups, usePitches, ... ALL TanStack Query usage lives here
+    ├── hooks/                   # one file per resource: useLeads, useGroups, usePitches, useAuth, ... ALL TanStack Query usage lives here
     ├── lib/
     │   ├── db.ts                # Prisma client singleton (globalThis-guarded against dev hot-reload duplication)
-    │   ├── env.ts                # zod-validated env, read once
+    │   ├── env.ts                # zod-validated env, read once (incl. JWT_SECRET)
     │   ├── errors.ts             # AppError + { success, code, message } envelope + withRoute() wrapper
-    │   ├── schemas.ts            # SERVER-side zod input validation (route handlers) — mirrors DB CHECK constraints Prisma doesn't enforce
+    │   ├── auth.ts                # JWT sign/verify (jose), bcrypt password hashing, requireUser(req), cookie helpers
+    │   ├── schemas.ts            # SERVER-side zod input validation (route handlers) — mirrors DB CHECK constraints Prisma doesn't enforce; also signup/login schemas
     │   ├── form-schemas.ts       # CLIENT-side zod schemas for React Hook Form — do not confuse with schemas.ts
-    │   ├── api.ts                 # the ONLY fetch layer on the client — typed api.<resource>.<verb>(), same-origin paths
+    │   ├── api.ts                 # the ONLY fetch layer on the client — typed api.<resource>.<verb>(), same-origin paths; auto-redirects to /login on a 401
     │   ├── utils.ts               # cn() helper, date formatting
-    │   ├── repo/                  # Prisma calls ONLY — one file per resource, no route/HTTP concerns here
-    │   └── services/               # external I/O: scraper.ts (Places), pitch.ts (Groq), whatsapp.ts (sidecar client), send-queue.ts (rate-limited worker)
+    │   ├── repo/                  # Prisma calls ONLY — one file per resource, no route/HTTP concerns here. Every fn takes `userId` and scopes its query (directly for Search/Product/Template/Lead/SenderProfile, via a parent join for Group/Message)
+    │   └── services/               # external I/O: scraper.ts (Places), pitch.ts (Groq), whatsapp.ts (sidecar client), send-queue.ts (rate-limited worker — uses the `*Internal` unscoped repo fns, see .ai/patterns.md §12)
     ├── stores/                    # Zustand: useUIStore, useSettingsStore — UI-only state
     ├── types/index.ts             # client-side TS mirrors of Prisma models (camelCase)
     └── generated/prisma/           # Prisma-generated client — DO NOT hand-edit, gitignored, regenerated by `prisma generate`
@@ -64,7 +74,7 @@ next-app/
 
 ### Layer rules
 
-- **route handler → repo/service → Prisma/external API.** A route file (`route.ts`) validates input (zod, `lib/schemas.ts`), calls one or more `lib/repo/*` / `lib/services/*` functions, and returns `ok(data)` or lets `withRoute()` catch a thrown `AppError`. No Prisma calls and no external `fetch` directly inside a route handler.
+- **route handler → repo/service → Prisma/external API.** A route file (`route.ts`) starts with `const userId = await requireUser(req)`, validates input (zod, `lib/schemas.ts`), calls one or more `lib/repo/*` / `lib/services/*` functions (passing `userId`), and returns `ok(data)` or lets `withRoute()` catch a thrown `AppError`. No Prisma calls and no external `fetch` directly inside a route handler.
 - **`lib/repo/*.ts`**: the only place Prisma Client is called (besides `send-queue.ts`, which needs a raw query to re-scan stranded rows). Returns Prisma model types or small derived shapes (e.g. `PitchWithLead` in `repo/pitches.ts`).
 - **`lib/services/*.ts`**: external I/O (Groq, Google Places, the Baileys sidecar) and the long-running send-queue worker. No Next.js request/response types in here.
 - **`lib/db.ts` / `lib/services/send-queue.ts`** use a `globalThis`-guarded singleton pattern — required because Next.js dev-mode hot-reloads modules but keeps `globalThis`, so a naive module-level singleton would duplicate on every edit.

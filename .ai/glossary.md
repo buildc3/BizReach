@@ -4,13 +4,25 @@ Shared vocabulary. Fields below are the **real** ones from `next-app/prisma/sche
 
 ---
 
-## Search
+## User
 
-One scraping job: "find `bizType` businesses in `area`". Running it scrapes leads (Google Places) and auto-groups them.
+An account (email + password). Owns Searches, Products, Templates, Leads (all denormalized with a direct `userId`) and one SenderProfile. Groups and Messages have no `userId` of their own — they're scoped transitively via their parent (`Group.search.userId`, `Message.lead.userId`). Added 2026-07-18 alongside per-user data isolation — see `strategy.md` §8/§9 and `.ai/patterns.md` §12.
 
 | Field | Type | Notes |
 |---|---|---|
 | id | string (uuid) | |
+| email | string | unique, login identifier |
+| passwordHash | string | bcrypt, never returned by any endpoint |
+| name | string \| null | |
+| createdAt | DateTime | |
+
+## Search
+
+One scraping job: "find `bizType` businesses in `area`". Running it scrapes leads (Google Places) and auto-groups them. Owned by a User.
+
+| Field | Type | Notes |
+|---|---|---|
+| id, userId | string (uuid) | |
 | name | string | user-facing label |
 | bizType | string | business category queried (also feeds `{business_type}` placeholder) |
 | area | string | location queried |
@@ -19,11 +31,11 @@ One scraping job: "find `bizType` businesses in `area`". Running it scrapes lead
 
 ## Lead
 
-A scraped business — the central entity. Belongs to one Search, optionally to one Group.
+A scraped business — the central entity. Belongs to one Search (and, denormalized, directly to one User), optionally to one Group.
 
 | Field | Type | Notes |
 |---|---|---|
-| id, searchId | string (uuid) | |
+| id, userId, searchId | string (uuid) | |
 | groupId | string \| null | null = ungrouped |
 | name | string | business name |
 | ownerName, address, phone, email, website, mapsUrl | string \| null | scraped, all optional |
@@ -35,7 +47,7 @@ A lead is **messageable** only if it has a non-empty phone.
 
 ## Group
 
-A batch of leads within a Search. Auto-created **by contact channel** when a scrape finishes; the user can rename, merge, move leads, or create manual groups. Pitches are generated and sent **per group**.
+A batch of leads within a Search. Auto-created **by contact channel** when a scrape finishes; the user can rename, merge, move leads, or create manual groups. Pitches are generated and sent **per group**. No own `userId` column — scoped via `search.userId`.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -47,11 +59,11 @@ A batch of leads within a Search. Auto-created **by contact channel** when a scr
 
 ## Product
 
-A service **we** offer (e.g. "social media management"). Scopes pitch/template generation — the AI pitches the selected product to the lead.
+A service **we** offer (e.g. "social media management"). Scopes pitch/template generation — the AI pitches the selected product to the lead. Owned by a User.
 
 | Field | Type | Notes |
 |---|---|---|
-| id | string (uuid) | |
+| id, userId | string (uuid) | |
 | name | string | |
 | description | string \| null | |
 | price | number \| null | |
@@ -61,11 +73,11 @@ A service **we** offer (e.g. "social media management"). Scopes pitch/template g
 
 ## Template
 
-A reusable outreach message with `{placeholder}` tokens, optionally tied to a Product. Rendered per-lead by `renderTemplate` (`lib/repo/pitches.ts`; case-insensitive; unknown tokens left verbatim). Known tokens: `{business_name}`, `{owner_name}`, `{area}`, `{phone}`, `{email}`, `{website}`, `{business_type}`/`{business_category}`, `{your_name}`, `{your_company_name}`, `{phone_number}`, `{website_url}`.
+A reusable outreach message with `{placeholder}` tokens, optionally tied to a Product. Rendered per-lead by `renderTemplate` (`lib/repo/pitches.ts`; case-insensitive; unknown tokens left verbatim). Known tokens: `{business_name}`, `{owner_name}`, `{area}`, `{phone}`, `{email}`, `{website}`, `{business_type}`/`{business_category}`, `{your_name}`, `{your_company_name}`, `{phone_number}`, `{website_url}`. Owned by a User.
 
 | Field | Type |
 |---|---|
-| id | string (uuid) |
+| id, userId | string (uuid) |
 | name, body | string |
 | productId | string \| null |
 | createdAt | DateTime |
@@ -74,7 +86,7 @@ A reusable outreach message with `{placeholder}` tokens, optionally tied to a Pr
 
 ## Message (= Pitch)
 
-One outreach message to one lead. **A "pitch" is not a separate table — it's a `messages` row in the review phase of its lifecycle.**
+One outreach message to one lead. **A "pitch" is not a separate table — it's a `messages` row in the review phase of its lifecycle.** No own `userId` column — scoped via `lead.userId`.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -98,7 +110,7 @@ Only `reviewed` pitches may be queued for sending; the send queue re-checks `que
 
 ## SenderProfile
 
-The user's own identity, used to fill signature placeholders. **Singleton** — exactly one row, pre-seeded by the original migration 007 (still present in the DB; not re-seeded by Prisma). Fields: `yourName`, `companyName`, `phone`, `website` (all optional), `updatedAt`.
+The user's own identity, used to fill signature placeholders. **One row per User** (`userId` unique) — was a single pre-seeded singleton row before the 2026-07-18 auth work; `getSenderProfile` now lazily `upsert`s an empty row on first read instead of assuming one exists. Fields: `yourName`, `companyName`, `phone`, `website` (all optional), `updatedAt`.
 
 ## PitchWithLead
 

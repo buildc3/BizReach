@@ -8,17 +8,36 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  searches      Search[]
+  products      Product[]
+  senderProfile SenderProfile?
+  leads         Lead[]
+  templates     Template[]
+
+  @@map("users")
+}
+
 model Search {
   id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   name      String
   bizType   String   @map("biz_type")
   area      String
   status    String   @default("pending")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   groups Group[]
   leads  Lead[]
 
+  @@index([userId], map: "idx_searches_user_id")
   @@map("searches")
 }
 
@@ -39,6 +58,7 @@ model Group {
 
 model Lead {
   id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   searchId  String   @map("search_id") @db.Uuid
   groupId   String?  @map("group_id") @db.Uuid
   name      String
@@ -53,6 +73,7 @@ model Lead {
   source    String?
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   search   Search    @relation(fields: [searchId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   group    Group?    @relation(fields: [groupId], references: [id], onUpdate: NoAction)
   messages Message[]
@@ -60,11 +81,13 @@ model Lead {
   @@index([groupId], map: "idx_leads_group_id")
   @@index([phone], map: "idx_leads_phone", where: raw("(phone IS NOT NULL)"))
   @@index([searchId], map: "idx_leads_search_id")
+  @@index([userId], map: "idx_leads_user_id")
   @@map("leads")
 }
 
 model Product {
   id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
   name        String
   description String?
   price       Float?
@@ -72,23 +95,28 @@ model Product {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   templates Template[]
 
+  @@index([userId], map: "idx_products_user_id")
   /// CHECK (category IN (...)) enforced at the DB but not by Prisma Client — re-validate with zod in route handlers.
   @@map("products")
 }
 
 model Template {
   id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   productId String?  @map("product_id") @db.Uuid
   name      String
   body      String
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   product  Product?  @relation(fields: [productId], references: [id], onUpdate: NoAction)
   messages Message[]
 
   @@index([productId], map: "idx_templates_product_id")
+  @@index([userId], map: "idx_templates_user_id")
   @@map("templates")
 }
 
@@ -115,11 +143,14 @@ model Message {
 
 model SenderProfile {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
   yourName    String?  @map("your_name")
   companyName String?  @map("company_name")
   phone       String?
   website     String?
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@map("sender_profile")
 }
