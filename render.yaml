@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: leadgen-app
+    runtime: node
+    rootDir: next-app
+    plan: starter
+    buildCommand: npm ci && npx prisma migrate deploy && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: SIDECAR_URL
+        sync: false
