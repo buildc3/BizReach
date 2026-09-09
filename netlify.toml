@@ -1,0 +1,10 @@
+[build]
+  base = "next-app"
+  command = "npm ci && npx prisma migrate deploy && npm run build"
+  publish = "next-app/.next"
+
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "GROQ_MODEL,SIDECAR_URL"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
