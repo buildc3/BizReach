@@ -9,21 +9,41 @@ import makeWASocket, {
   Browsers,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
+import crypto from "crypto";
 
-const PORT = 3099;
+const PORT = Number(process.env.PORT) || 3099;
+const HOST = process.env.HOST || "127.0.0.1";
+const SIDECAR_TOKEN = process.env.SIDECAR_TOKEN || "";
 
-// Auth stored under %APPDATA%/lead-gen/wa-auth
-const AUTH_DIR = path.join(
-  process.env.APPDATA || process.env.HOME || ".",
-  "lead-gen",
-  "wa-auth"
-);
+// A hosted deployment (Render sets PORT) or NODE_ENV=production must be secured.
+if (!SIDECAR_TOKEN) {
+  if (process.env.PORT || process.env.NODE_ENV === "production") {
+    console.error("[wa-sidecar] SIDECAR_TOKEN is required when hosted/production. Exiting.");
+    process.exit(1);
+  }
+  console.warn("[wa-sidecar] SIDECAR_TOKEN not set — API is unauthenticated (localhost dev only).");
+}
+
+// Auth stored under AUTH_DIR, default %APPDATA%/lead-gen/wa-auth
+const AUTH_DIR =
+  process.env.AUTH_DIR ||
+  path.join(process.env.APPDATA || process.env.HOME || ".", "lead-gen", "wa-auth");
 
 const logger = pino({ level: "silent" });
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
+
+// Shared-secret check for every /api route (constant-time compare on SHA-256 digests).
+const sha256 = (v) => crypto.createHash("sha256").update(v).digest();
+app.use("/api", (req, res, next) => {
+  if (!SIDECAR_TOKEN) return next();
+  const provided = String(req.get("x-sidecar-token") ?? "");
+  if (crypto.timingSafeEqual(sha256(provided), sha256(SIDECAR_TOKEN))) return next();
+  console.warn(`[wa-sidecar] 401 ${req.method} ${req.path} from ${req.ip}`);
+  res.status(401).json({ error: "Unauthorized" });
+});
 
 let sock = null;
 let qrDataUrl = null;
@@ -214,7 +234,7 @@ app.post("/api/logout", async (_req, res) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`[wa-sidecar] Listening on http://127.0.0.1:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`[wa-sidecar] Listening on http://${HOST}:${PORT}`);
   startSocket();
 });

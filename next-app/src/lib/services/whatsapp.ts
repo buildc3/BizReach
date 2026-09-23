@@ -7,6 +7,12 @@ export interface SidecarStatus {
 }
 
 const UNREACHABLE = "Could not reach the local WhatsApp service. Make sure the sidecar is running.";
+const UNAUTHORIZED = "WhatsApp service rejected the request. Check that SIDECAR_TOKEN matches the sidecar.";
+
+/** Headers for every sidecar call, including the shared-secret token. */
+function sidecarHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return env.SIDECAR_TOKEN ? { ...extra, "x-sidecar-token": env.SIDECAR_TOKEN } : extra;
+}
 
 /**
  * Normalise an Indian phone number to digits-only international format.
@@ -30,12 +36,14 @@ export async function sendMessage(phone: string, body: string): Promise<void> {
   try {
     res = await fetch(`${env.SIDECAR_URL}/api/send`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: sidecarHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ phone: normalised, message: body }),
     });
   } catch {
     throw AppError.whatsapp(UNREACHABLE);
   }
+
+  if (res.status === 401) throw AppError.whatsapp(UNAUTHORIZED);
 
   if (res.status === 503) {
     throw AppError.whatsapp("WhatsApp is not connected. Please scan the QR code in Settings → WhatsApp.");
@@ -51,18 +59,21 @@ export async function sendMessage(phone: string, body: string): Promise<void> {
 export async function getStatus(): Promise<SidecarStatus> {
   let res: Response;
   try {
-    res = await fetch(`${env.SIDECAR_URL}/api/status`);
+    res = await fetch(`${env.SIDECAR_URL}/api/status`, { headers: sidecarHeaders() });
   } catch {
     throw AppError.whatsapp(UNREACHABLE);
   }
+  if (res.status === 401) throw AppError.whatsapp(UNAUTHORIZED);
   return res.json();
 }
 
 /** Disconnect WhatsApp and wipe saved credentials. */
 export async function logout(): Promise<void> {
+  let res: Response;
   try {
-    await fetch(`${env.SIDECAR_URL}/api/logout`, { method: "POST" });
+    res = await fetch(`${env.SIDECAR_URL}/api/logout`, { method: "POST", headers: sidecarHeaders() });
   } catch {
     throw AppError.whatsapp("Could not reach the local WhatsApp service.");
   }
+  if (res.status === 401) throw AppError.whatsapp(UNAUTHORIZED);
 }
