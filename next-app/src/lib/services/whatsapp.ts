@@ -64,7 +64,13 @@ export async function getStatus(): Promise<SidecarStatus> {
     throw AppError.whatsapp(UNREACHABLE);
   }
   if (res.status === 401) throw AppError.whatsapp(UNAUTHORIZED);
-  return res.json();
+  // Hosts like Render answer with an HTML page (502/503) while the instance wakes up.
+  if (!res.ok) throw AppError.whatsapp(`${UNREACHABLE} (HTTP ${res.status}; it may still be waking up — retry in a minute)`);
+  try {
+    return await res.json();
+  } catch {
+    throw AppError.whatsapp(`${UNREACHABLE} (unexpected non-JSON response)`);
+  }
 }
 
 /** Disconnect WhatsApp and wipe saved credentials. */
