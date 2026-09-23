@@ -10,8 +10,10 @@ import { requireUser } from "@/lib/auth";
 type Params = { params: Promise<{ id: string }> };
 
 /**
- * Kick off scraping for a search. Returns immediately; the scrape runs in the
- * background and updates the search status (running → done | error) as it goes.
+ * Run scraping for a search and wait for it to finish before responding.
+ * Deliberately synchronous (not fire-and-forget): the app runs on serverless
+ * hosts where the process can be frozen/torn down right after the response
+ * is sent, which would kill detached background work mid-scrape.
  */
 export const POST = withRoute(async (req: NextRequest, { params }: Params) => {
   const userId = await requireUser(req);
@@ -19,30 +21,28 @@ export const POST = withRoute(async (req: NextRequest, { params }: Params) => {
   const search = await searchesRepo.getSearch(id, userId);
   await searchesRepo.updateSearchStatus(id, userId, "running");
 
-  void (async () => {
-    try {
-      const leads = await scraper.searchBusinesses(search.id, search.bizType, search.area);
-      let inserted = 0;
-      for (const lead of leads) {
-        try {
-          await leadsRepo.insertLead(userId, lead);
-          inserted++;
-        } catch (e) {
-          console.warn(`insert_lead failed for search ${search.id}:`, e);
-        }
-      }
-      console.info(`search ${search.id} done: ${inserted} leads`);
+  try {
+    const leads = await scraper.searchBusinesses(search.id, search.bizType, search.area);
+    let inserted = 0;
+    for (const lead of leads) {
       try {
-        await groupsRepo.autoGroupByContact(search.id, userId);
+        await leadsRepo.insertLead(userId, lead);
+        inserted++;
       } catch (e) {
-        console.warn(`auto-group failed for search ${search.id}:`, e);
+        console.warn(`insert_lead failed for search ${search.id}:`, e);
       }
-      await searchesRepo.updateSearchStatus(search.id, userId, "done");
-    } catch (e) {
-      console.error(`scrape failed for search ${search.id}:`, e);
-      await searchesRepo.updateSearchStatus(search.id, userId, "error").catch(() => {});
     }
-  })();
+    console.info(`search ${search.id} done: ${inserted} leads`);
+    try {
+      await groupsRepo.autoGroupByContact(search.id, userId);
+    } catch (e) {
+      console.warn(`auto-group failed for search ${search.id}:`, e);
+    }
+    await searchesRepo.updateSearchStatus(search.id, userId, "done");
+  } catch (e) {
+    console.error(`scrape failed for search ${search.id}:`, e);
+    await searchesRepo.updateSearchStatus(search.id, userId, "error").catch(() => {});
+  }
 
-  return ok("started");
+  return ok("done");
 });

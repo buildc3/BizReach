@@ -38,6 +38,20 @@ interface DetailsResponse {
   status: string;
 }
 
+/** Runs `fn` over `items` with at most `limit` in flight at once. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 export async function searchBusinesses(searchId: string, bizType: string, area: string): Promise<InsertLead[]> {
   if (!env.GOOGLE_PLACES_API_KEY || env.GOOGLE_PLACES_API_KEY === "your_key_here") {
     throw AppError.scraper("GOOGLE_PLACES_API_KEY is not configured");
@@ -46,8 +60,7 @@ export async function searchBusinesses(searchId: string, bizType: string, area: 
   const query = `${bizType.trim()} in ${area.trim()}`;
   const places = await textSearch(query);
 
-  const leads: InsertLead[] = [];
-  for (const place of places) {
+  const leads = await mapWithConcurrency(places, 5, async (place): Promise<InsertLead> => {
     const details = await placeDetails(place.place_id);
 
     const phone = details?.formatted_phone_number ?? details?.international_phone_number ?? null;
@@ -55,7 +68,7 @@ export async function searchBusinesses(searchId: string, bizType: string, area: 
     const mapsUrl =
       details?.url ?? `https://www.google.com/maps/search/?api=1&query_place_id=${place.place_id}`;
 
-    leads.push({
+    return {
       searchId,
       name: place.name,
       ownerName: null,
@@ -67,8 +80,8 @@ export async function searchBusinesses(searchId: string, bizType: string, area: 
       lat: place.geometry.location.lat,
       lon: place.geometry.location.lng,
       source: "google_places",
-    });
-  }
+    };
+  });
 
   const deduped = dedupe(leads);
   await enrichEmails(deduped);
@@ -102,7 +115,7 @@ async function placeDetails(placeId: string): Promise<PlaceDetails | undefined> 
     url.searchParams.set("fields", "formatted_phone_number,international_phone_number,website,url");
     url.searchParams.set("key", env.GOOGLE_PLACES_API_KEY);
 
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     const resp: DetailsResponse = await res.json();
     if (resp.status !== "OK") return undefined;
     return resp.result;
@@ -122,10 +135,10 @@ function dedupe(leads: InsertLead[]): InsertLead[] {
 }
 
 async function enrichEmails(leads: InsertLead[]): Promise<void> {
-  for (const lead of leads) {
-    if (lead.email || !lead.website) continue;
+  await mapWithConcurrency(leads, 5, async (lead) => {
+    if (lead.email || !lead.website) return;
     lead.email = await scrapeEmail(lead.website);
-  }
+  });
 }
 
 async function scrapeEmail(url: string): Promise<string | null> {
