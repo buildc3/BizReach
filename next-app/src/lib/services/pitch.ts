@@ -1,15 +1,15 @@
 /**
- * AI-generated outreach pitches via the Groq API (free tier).
+ * AI-generated outreach pitches via the Google Gemini API.
  *
- * Uses Groq's OpenAI-compatible endpoint — fast inference, no cost on free tier.
- * The API key loads from env and is sent as a Bearer token — never hardcoded,
- * never logged.
+ * Uses Gemini's OpenAI-compatible chat-completions endpoint. The API key
+ * loads from env and is sent as a Bearer token — never hardcoded, never logged.
  */
 import type { Lead, Product, Search, SenderProfile } from "@/generated/prisma/client";
 import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 
-const API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const API_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const MAX_RETRIES = 2;
 
 const SYSTEM_PROMPT =
   "You write friendly WhatsApp outreach messages for a local marketing " +
@@ -22,35 +22,53 @@ interface ChatResponse {
   choices?: { message?: { content?: string } }[];
 }
 
-async function callGroq(body: Record<string, unknown>): Promise<string> {
-  if (!env.GROQ_API_KEY) {
-    throw AppError.internal("GROQ_API_KEY is not configured");
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Rate limits (429) and transient upstream errors (5xx) are worth retrying. */
+const isRetryable = (status: number) => status === 429 || status >= 500;
+
+async function callAI(body: Record<string, unknown>): Promise<string> {
+  if (!env.GEMINI_API_KEY) {
+    throw AppError.internal("GEMINI_API_KEY is not configured");
   }
 
-  let res: Response;
-  try {
-    res = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    throw AppError.internal(`Groq request failed: ${e}`);
+  // Gemini 2.5 Flash "thinks" by default, which adds seconds per call; short
+  // copywriting doesn't need it.
+  const payload = JSON.stringify(
+    env.GEMINI_MODEL.includes("flash") ? { reasoning_effort: "none", ...body } : body,
+  );
+
+  let res: Response | undefined;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      res = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.GEMINI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: payload,
+      });
+    } catch (e) {
+      if (attempt === MAX_RETRIES) throw AppError.internal(`Gemini request failed: ${e}`);
+      await sleep(1000 * 2 ** attempt);
+      continue;
+    }
+    if (res.ok || !isRetryable(res.status) || attempt === MAX_RETRIES) break;
+    const retryAfter = Number(res.headers.get("retry-after"));
+    await sleep(Math.min(retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt, 10_000));
   }
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw AppError.internal(`Groq API returned ${res.status}: ${detail}`);
+  if (!res!.ok) {
+    const detail = await res!.text().catch(() => "");
+    throw AppError.internal(`Gemini API returned ${res!.status}: ${detail}`);
   }
 
   let parsed: ChatResponse;
   try {
-    parsed = await res.json();
+    parsed = await res!.json();
   } catch (e) {
-    throw AppError.internal(`Failed to parse Groq response: ${e}`);
+    throw AppError.internal(`Failed to parse Gemini response: ${e}`);
   }
 
   return (parsed.choices?.[0]?.message?.content ?? "").trim();
@@ -85,8 +103,8 @@ export async function generatePitch(
     if (profile.website) details += `\nWebsite: ${profile.website}`;
   }
 
-  const text = await callGroq({
-    model: env.GROQ_MODEL,
+  const text = await callAI({
+    model: env.GEMINI_MODEL,
     temperature: 0.9,
     max_tokens: 500,
     messages: [
@@ -95,7 +113,7 @@ export async function generatePitch(
     ],
   });
 
-  if (!text) throw AppError.internal("Groq returned an empty message");
+  if (!text) throw AppError.internal("Gemini returned an empty message");
   return text;
 }
 
@@ -118,8 +136,8 @@ export async function fillProduct(raw: string): Promise<ProductFill> {
     '- category: exactly one of "website", "menu", or "other"\n\n' +
     "Output ONLY valid JSON. No markdown, no explanation, no extra text.";
 
-  const rawJson = await callGroq({
-    model: env.GROQ_MODEL,
+  const rawJson = await callAI({
+    model: env.GEMINI_MODEL,
     temperature: 0.4,
     max_tokens: 200,
     messages: [
@@ -155,8 +173,8 @@ export async function generateTemplate(product: Product, description: string): P
   if (product.description) context += ` — ${product.description}`;
   context += `\n\nTemplate goal / tone from the user: ${description}`;
 
-  const text = await callGroq({
-    model: env.GROQ_MODEL,
+  const text = await callAI({
+    model: env.GEMINI_MODEL,
     temperature: 0.8,
     max_tokens: 400,
     messages: [
@@ -165,6 +183,6 @@ export async function generateTemplate(product: Product, description: string): P
     ],
   });
 
-  if (!text) throw AppError.internal("Groq returned an empty template");
+  if (!text) throw AppError.internal("Gemini returned an empty template");
   return text;
 }

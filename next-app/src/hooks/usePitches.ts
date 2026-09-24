@@ -8,7 +8,8 @@ export function useGroupPitches(groupId: string, poll = false) {
     queryKey: ["pitches", groupId],
     queryFn: () => api.pitches.listByGroup(groupId),
     enabled: !!groupId,
-    refetchInterval: poll ? 1500 : false,
+    // Poll fast while generating; slower while sends are queued so statuses settle on screen.
+    refetchInterval: (q) => (poll ? 1500 : q.state.data?.some((p) => p.status === "queued") ? 5000 : false),
   });
 }
 
@@ -46,6 +47,14 @@ export function useRejectPitch(groupId: string) {
   const invalidate = useInvalidatePitches(groupId);
   return useMutation({
     mutationFn: (id: string) => api.pitches.reject(id),
+    onSuccess: invalidate,
+  });
+}
+
+export function useResendPitch(groupId: string) {
+  const invalidate = useInvalidatePitches(groupId);
+  return useMutation({
+    mutationFn: (id: string) => api.pitches.resend(id),
     onSuccess: invalidate,
   });
 }

@@ -85,9 +85,9 @@ The worker re-checks status is still `queued` before sending (so cancellation = 
 
 Exemplar: the original migration 006/007 CHECK-constrained columns (`messages.status`, `products.category`, `searches.status`) — their zod counterparts live in `lib/schemas.ts`.
 
-## 7. Groq (AI) calls
+## 7. Gemini (AI) calls
 
-One pattern, in `lib/services/pitch.ts`: guard `env.GROQ_API_KEY` empty → `AppError.internal(...)`, build a plain-text details block from the entities, `fetch` POST to Groq's OpenAI-compatible chat completions with a `SYSTEM_PROMPT` constant, parse defensively (optional-chain through `choices?.[0]?.message?.content`). Key comes from `lib/env.ts`, sent as Bearer, never logged. New AI features extend this service (or clone its shape into a new `services/` file) — they don't create a second HTTP client convention.
+One pattern, in `lib/services/pitch.ts`: guard `env.GEMINI_API_KEY` empty → `AppError.internal(...)`, build a plain-text details block from the entities, `fetch` POST (via `callAI`, which retries 429/5xx with backoff) to Gemini's OpenAI-compatible chat completions with a `SYSTEM_PROMPT` constant, parse defensively (optional-chain through `choices?.[0]?.message?.content`). Key comes from `lib/env.ts`, sent as Bearer, never logged. New AI features extend this service (or clone its shape into a new `services/` file) — they don't create a second HTTP client convention.
 
 ## 8. Sidecar proxying
 

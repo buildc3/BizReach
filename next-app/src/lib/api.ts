@@ -117,6 +117,7 @@ export const api = {
       request<Message>(`/api/v1/pitches/${id}`, { method: "PUT", body: JSON.stringify({ body }) }),
     review: (id: string) => request<Message>(`/api/v1/pitches/${id}/review`, { method: "POST" }),
     reject: (id: string) => request<Message>(`/api/v1/pitches/${id}/reject`, { method: "POST" }),
+    resend: (id: string) => request<Message>(`/api/v1/pitches/${id}/resend`, { method: "POST" }),
     sendGroup: (groupId: string) =>
       request<{ queued: number }>("/api/v1/pitches/send-group", {
         method: "POST",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Loader2, Sparkles, Wand2, Check, ThumbsDown, Pencil, RefreshCw, Save, FileText, Send } from "lucide-react";
+import { X, Loader2, Sparkles, Wand2, Check, ThumbsDown, Pencil, RefreshCw, Save, FileText, Send, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,7 @@ import {
   useUpdatePitch,
   useReviewPitch,
   useRejectPitch,
+  useResendPitch,
   useSendGroup,
 } from "@/hooks/usePitches";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,7 @@ function PitchCard({
   const update = useUpdatePitch(groupId);
   const review = useReviewPitch(groupId);
   const reject = useRejectPitch(groupId);
+  const resend = useResendPitch(groupId);
   const single = useGeneratePitch();
   const regenerating = single.isPending && single.variables?.leadId === pitch.leadId;
 
@@ -121,6 +123,22 @@ function PitchCard({
             )}
           </div>
         )}
+        {pitch.status === "failed" && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              onClick={() => resend.mutate(pitch.id)}
+              disabled={resend.isPending || !pitch.leadPhone}
+            >
+              {resend.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
+              Resend
+            </Button>
+            {!pitch.leadPhone && <span className="text-xs text-muted-foreground">No phone number on this lead</span>}
+            {resend.isError && <span className="text-xs text-destructive">Couldn&apos;t resend. Try again.</span>}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -167,17 +185,24 @@ export function GroupPitchDrawer({
     stableTicks.current = 0;
     startedAt.current = Date.now();
     setGenerating(true);
-    genBatch.mutate({
-      mode,
-      templateId: mode === "template" ? templateId : undefined,
-      productId: mode === "ai" ? productId : undefined,
-      instructions: instructions.trim() || undefined,
-    });
+    genBatch.mutate(
+      {
+        mode,
+        templateId: mode === "template" ? templateId : undefined,
+        productId: mode === "ai" ? productId : undefined,
+        instructions: instructions.trim() || undefined,
+      },
+      // The request now returns only when the whole batch is done.
+      { onSettled: () => setGenerating(false) },
+    );
   };
 
   const pitches = pitchesQ.data ?? [];
   const drafts = pitches.filter((p) => p.status === "draft");
   const reviewed = pitches.filter((p) => p.status === "reviewed");
+  const failed = pitches.filter((p) => p.status === "failed" && p.leadPhone);
+  const resendAll = useResendPitch(group.id);
+  const retryFailed = () => failed.forEach((p) => resendAll.mutate(p.id));
   const reviewAll = useReviewPitch(group.id);
   const approveAll = () => drafts.forEach((p) => reviewAll.mutate(p.id));
   const sendGroup = useSendGroup(group.id);
@@ -280,8 +305,13 @@ export function GroupPitchDrawer({
 
         {/* Review list */}
         <div className="flex-1 overflow-auto px-4 py-3 space-y-2">
-          {(drafts.length > 0 || reviewed.length > 0) && (
+          {(drafts.length > 0 || reviewed.length > 0 || failed.length > 0) && (
             <div className="flex justify-end gap-2">
+              {failed.length > 0 && (
+                <Button size="sm" variant="outline" className="h-7" onClick={retryFailed} disabled={resendAll.isPending}>
+                  <RotateCcw className="h-3.5 w-3.5 mr-1" />Retry {failed.length} failed
+                </Button>
+              )}
               {drafts.length > 0 && (
                 <Button size="sm" variant="outline" className="h-7" onClick={approveAll} disabled={reviewAll.isPending}>
                   <Check className="h-3.5 w-3.5 mr-1" />Approve all drafts ({drafts.length})

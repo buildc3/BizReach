@@ -118,7 +118,7 @@ Read-model for the review screen: a Message joined with its lead's `leadName` an
 
 ## Other terms
 
-- **Pitch modes** — `template` (merge a Template per lead) vs `ai` (Groq generates a unique message per lead).
+- **Pitch modes** — `template` (merge a Template per lead) vs `ai` (Gemini generates a unique message per lead).
 - **Auto-group** — splitting a search's leads into `has_email` / `phone_only` / `no_contact` groups by which contact fields exist. `lib/repo/groups.ts`'s `autoGroupByContact`.
 - **Send queue** — the rate-limited in-process worker (20–40s jitter between sends); the only path to WhatsApp. `lib/services/send-queue.ts`.
 - **Sidecar** — the local Baileys Node process that holds the WhatsApp session (QR login, `connected` status). Unchanged by the Next.js migration.

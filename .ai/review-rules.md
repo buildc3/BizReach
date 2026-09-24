@@ -46,6 +46,6 @@ Run these before calling any change done. They're weighted to this app's actual 
 
 - [ ] Prisma migrations are generated via `prisma migrate dev` (not hand-written raw SQL) so the migration history stays consistent — the one exception is the `0_init` baseline, which intentionally matches the pre-existing DB and must never be re-run destructively.
 - [ ] Restart story stated: does this change need a `next dev`/`next start` restart, sidecar restart, or both? (Most route-handler changes hot-reload; `instrumentation.ts` changes need a full restart to re-run `register()`.)
-- [ ] External calls (Groq, Places, sidecar) handle timeout/non-200/malformed-JSON without crashing the fire-and-forget task or leaving rows stuck in a transient status.
+- [ ] External calls (Gemini, Places, sidecar) handle timeout/non-200/malformed-JSON without crashing the fire-and-forget task or leaving rows stuck in a transient status.
 - [ ] Concurrency: user actions racing a background task (e.g. rejecting a pitch while the queue drains) resolve safely via status re-checks.
 - [ ] Enough `console.info`/`console.warn`/`console.error` on new lifecycle events to debug a failed batch from logs alone, without logging message bodies or PII more than existing code does.

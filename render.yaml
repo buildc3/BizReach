@@ -13,10 +13,10 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
-      - key: GROQ_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: GROQ_MODEL
-        value: llama-3.3-70b-versatile
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       - key: GOOGLE_PLACES_API_KEY
         sync: false
       - key: SIDECAR_URL

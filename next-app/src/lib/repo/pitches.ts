@@ -132,3 +132,17 @@ export async function updatePitchBody(id: string, userId: string, body: string) 
   }
   return prisma.message.update({ where: { id }, data: { body } });
 }
+
+/**
+ * Move a `failed` pitch back to `queued` so it can be re-sent.
+ * The status guard in the WHERE makes this a compare-and-set: of two racing
+ * calls only one matches, so a message is never enqueued twice.
+ */
+export async function requeueFailedPitch(id: string, userId: string) {
+  const res = await prisma.message.updateMany({
+    where: { id, status: "failed", lead: { userId } },
+    data: { status: "queued" },
+  });
+  if (res.count === 0) throw AppError.notFound(`Failed pitch ${id} not found`);
+  return prisma.message.findUniqueOrThrow({ where: { id } });
+}

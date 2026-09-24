@@ -9,10 +9,19 @@ import * as pitchService from "@/lib/services/pitch";
 import { AppError, ok, withRoute } from "@/lib/errors";
 import { generateBatchSchema } from "@/lib/schemas";
 import { requireUser } from "@/lib/auth";
+import { mapWithConcurrency } from "@/lib/concurrency";
+
+// Allow long batches on serverless hosts (function time limits vary by plan).
+export const maxDuration = 60;
+
+// Gemini's free tier is rate-limited; a few parallel calls is the sweet spot.
+const AI_CONCURRENCY = 4;
 
 /**
- * Generate a per-lead draft pitch for every messageable lead in a group.
- * Returns immediately; generation runs in the background (poll GET /pitches).
+ * Generate a per-lead draft pitch for every messageable lead in a group and
+ * wait for it to finish before responding. Deliberately synchronous (not
+ * fire-and-forget): serverless hosts can freeze the process right after the
+ * response is sent, which would kill detached background work mid-batch.
  * Existing un-reviewed drafts for the group are replaced.
  */
 export const POST = withRoute(async (req: NextRequest) => {
@@ -31,46 +40,32 @@ export const POST = withRoute(async (req: NextRequest) => {
 
   const { groupId, mode, instructions } = input;
 
-  void (async () => {
+  try {
+    await pitchesRepo.deleteDraftPitchesForGroup(groupId, userId);
+  } catch (e) {
+    console.warn(`clearing old drafts failed for group ${groupId}:`, e);
+  }
+
+  // Can't message a lead without a phone.
+  const leads = (await groupsRepo.getLeadsInGroup(groupId, userId)).filter(pitchesRepo.hasPhone);
+
+  const results = await mapWithConcurrency(leads, mode === "ai" ? AI_CONCURRENCY : 1, async (lead) => {
     try {
-      await pitchesRepo.deleteDraftPitchesForGroup(groupId, userId);
+      const body =
+        mode === "ai"
+          ? await pitchService.generatePitch(lead, search, product, instructions, profile)
+          : pitchesRepo.renderTemplate(template!.body, lead, search, profile);
+      await pitchesRepo.insertDraft(lead.id, template?.id ?? null, body);
+      return true;
     } catch (e) {
-      console.warn(`clearing old drafts failed for group ${groupId}:`, e);
+      console.warn(`pitch failed for lead ${lead.id}:`, e);
+      return false;
     }
+  });
 
-    let leads;
-    try {
-      leads = await groupsRepo.getLeadsInGroup(groupId, userId);
-    } catch (e) {
-      console.error(`loading leads for group ${groupId} failed:`, e);
-      return;
-    }
+  const made = results.filter(Boolean).length;
+  const failed = results.length - made;
+  console.info(`group ${groupId}: generated ${made} draft pitches, ${failed} failed (${mode} mode)`);
 
-    let made = 0;
-    for (const lead of leads) {
-      if (!pitchesRepo.hasPhone(lead)) continue; // can't message without a phone
-
-      let body: string;
-      if (mode === "ai") {
-        try {
-          body = await pitchService.generatePitch(lead, search, product, instructions, profile);
-        } catch (e) {
-          console.warn(`AI pitch failed for lead ${lead.id}:`, e);
-          continue;
-        }
-      } else {
-        body = pitchesRepo.renderTemplate(template!.body, lead, search, profile);
-      }
-
-      try {
-        await pitchesRepo.insertDraft(lead.id, template?.id ?? null, body);
-        made++;
-      } catch (e) {
-        console.warn(`insert draft failed for lead ${lead.id}:`, e);
-      }
-    }
-    console.info(`group ${groupId}: generated ${made} draft pitches (${mode} mode)`);
-  })();
-
-  return ok("started");
+  return ok(`generated ${made}, failed ${failed}`);
 });

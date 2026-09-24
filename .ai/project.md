@@ -6,7 +6,7 @@
 
 The stack was rewritten from three sub-projects (Rust axum backend, React+Tauri frontend, Node sidecar) to two (a single Next.js app owning both frontend and backend, via Prisma; the Node/Baileys sidecar unchanged). Full detail, decision log, and phase-by-phase changelog: **`strategy.md`** and **`progress.md`** at the repo root.
 
-**Status: code-complete (Phases 0–6), builds clean (`tsc --noEmit` + `next build`, 0 errors/warnings), not yet functionally verified against live DB/Groq/Places/WhatsApp — that verification pass belongs to the user, deliberately not done by the implementing AI session.**
+**Status: code-complete (Phases 0–6), builds clean (`tsc --noEmit` + `next build`, 0 errors/warnings), not yet functionally verified against live DB/Gemini/Places/WhatsApp — that verification pass belongs to the user, deliberately not done by the implementing AI session.**
 
 Key outcomes worth knowing before touching this codebase:
 
@@ -26,7 +26,7 @@ Search → scrape Leads → **auto-group** by contact channel → generate per-l
 | Phase | Scope | Status |
 |---|---|---|
 | 0–1 | Data model (groups, pitch lifecycle statuses), auto-grouping by contact channel | ✅ Done (ported) |
-| 2 | Batch pitch generation — two modes (`template` merge / `ai` per-lead via Groq), background + poll | ✅ Done (ported) |
+| 2 | Batch pitch generation — two modes (`template` merge / `ai` per-lead via Gemini), background + poll | ✅ Done (ported) |
 | 3 | Review UI — `GroupPitchDrawer` on the Leads page; edit/regenerate/reject/approve/bulk-approve | ✅ Done (ported) |
 | 4 | Send reviewed-only via rate-limited queue — `lib/services/send-queue.ts` (20–40s jitter) | ✅ Ported — **verify end-to-end with a live WhatsApp session before trusting it (never was, on either stack)** |
 | — | Sender profile (signature placeholders, Settings page) | ✅ Done (ported) |
